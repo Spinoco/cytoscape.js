@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2016-2022, The Cytoscape Consortium.
+ * Copyright (c) 2016-2023, The Cytoscape Consortium.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the “Software”), to deal in
@@ -4657,7 +4657,7 @@ var kMedoids = function kMedoids(options) {
       assignment[node.id()] = classify(node, medoids, opts.distance, opts.attributes, 'kMedoids');
     }
 
-    isStillMoving = false; // Step 3: For each medoid m, and for each node assciated with mediod m,
+    isStillMoving = false; // Step 3: For each medoid m, and for each node associated with mediod m,
     // select the node with the lowest configuration cost as new medoid.
 
     for (var m = 0; m < medoids.length; m++) {
@@ -15622,9 +15622,10 @@ styfn$6.getEmSizeInPixels = function () {
 styfn$6.containerCss = function (propName) {
   var cy = this._private.cy;
   var domElement = cy.container();
+  var containerWindow = domElement.ownerDocument.defaultView || window$1;
 
-  if (window$1 && domElement && window$1.getComputedStyle) {
-    return window$1.getComputedStyle(domElement).getPropertyValue(propName);
+  if (containerWindow && domElement && containerWindow.getComputedStyle) {
+    return containerWindow.getComputedStyle(domElement).getPropertyValue(propName);
   }
 };
 
@@ -16137,7 +16138,7 @@ var styfn$2 = {};
       multiple: true
     },
     bgCrossOrigin: {
-      enums: ['anonymous', 'use-credentials'],
+      enums: ['anonymous', 'use-credentials', 'null'],
       multiple: true
     },
     bgClip: {
@@ -16202,7 +16203,7 @@ var styfn$2 = {};
       enums: ['rectangle', 'roundrectangle', 'round-rectangle']
     },
     nodeShape: {
-      enums: ['rectangle', 'roundrectangle', 'round-rectangle', 'cutrectangle', 'cut-rectangle', 'bottomroundrectangle', 'bottom-round-rectangle', 'barrel', 'ellipse', 'triangle', 'round-triangle', 'square', 'pentagon', 'round-pentagon', 'hexagon', 'round-hexagon', 'concavehexagon', 'concave-hexagon', 'heptagon', 'round-heptagon', 'octagon', 'round-octagon', 'tag', 'round-tag', 'star', 'diamond', 'round-diamond', 'vee', 'rhomboid', 'polygon']
+      enums: ['rectangle', 'roundrectangle', 'round-rectangle', 'cutrectangle', 'cut-rectangle', 'bottomroundrectangle', 'bottom-round-rectangle', 'barrel', 'ellipse', 'triangle', 'round-triangle', 'square', 'pentagon', 'round-pentagon', 'hexagon', 'round-hexagon', 'concavehexagon', 'concave-hexagon', 'heptagon', 'round-heptagon', 'octagon', 'round-octagon', 'tag', 'round-tag', 'star', 'diamond', 'round-diamond', 'vee', 'rhomboid', 'right-rhomboid', 'polygon']
     },
     overlayShape: {
       enums: ['roundrectangle', 'round-rectangle', 'ellipse']
@@ -18458,7 +18459,8 @@ var corefn$1 = {
     var _p = this._private;
     var container = _p.container;
     return _p.sizeCache = _p.sizeCache || (container ? function () {
-      var style = window$1.getComputedStyle(container);
+      var containerWindow = container.ownerDocument.defaultView || window$1;
+      var style = containerWindow.getComputedStyle(container);
 
       var val = function val(name) {
         return parseFloat(style.getPropertyValue(name));
@@ -19049,8 +19051,6 @@ var defaults$7 = {
   // Excludes the label when calculating node bounding boxes for the layout algorithm
   roots: undefined,
   // the roots of the trees
-  maximal: false,
-  // whether to shift nodes down their natural BFS depths in order to avoid upwards edges (DAGS only)
   depthSort: undefined,
   // a sorting function to order nodes at equal depth. e.g. function(a, b){ return a.data('weight') - b.data('weight') }
   animate: false,
@@ -19072,6 +19072,12 @@ var defaults$7 = {
   } // transform a given node position. Useful for changing flow direction in discrete layouts
 
 };
+var deprecatedOptionDefaults = {
+  maximal: false,
+  // whether to shift nodes down their natural BFS depths in order to avoid upwards edges (DAGS only); setting acyclic to true sets maximal to true also
+  acyclic: false // whether the tree is acyclic and thus a node could be shifted (due to the maximal option) multiple times without causing an infinite loop; setting to true sets maximal to true also; if you are uncertain whether a tree is acyclic, set to false to avoid potential infinite loops
+
+};
 /* eslint-enable */
 
 var getInfo = function getInfo(ele) {
@@ -19083,7 +19089,7 @@ var setInfo = function setInfo(ele, obj) {
 };
 
 function BreadthFirstLayout(options) {
-  this.options = extend({}, defaults$7, options);
+  this.options = extend({}, defaults$7, deprecatedOptionDefaults, options);
 }
 
 BreadthFirstLayout.prototype.run = function () {
@@ -19096,7 +19102,7 @@ BreadthFirstLayout.prototype.run = function () {
   });
   var graph = eles;
   var directed = options.directed;
-  var maximal = options.maximal || options.maximalAdjustments > 0; // maximalAdjustments for compat. w/ old code
+  var maximal = options.acyclic || options.maximal || options.maximalAdjustments > 0; // maximalAdjustments for compat. w/ old code; also, setting acyclic to true sets maximal to true
 
   var bb = makeBoundingBox(options.boundingBox ? options.boundingBox : {
     x1: 0,
@@ -19232,12 +19238,13 @@ BreadthFirstLayout.prototype.run = function () {
     }
 
     if (eInfo.depth <= maxDepth) {
-      if (shifted[id]) {
+      if (!options.acyclic && shifted[id]) {
         return null;
       }
 
-      changeDepth(ele, maxDepth + 1);
-      shifted[id] = true;
+      var newDepth = maxDepth + 1;
+      changeDepth(ele, newDepth);
+      shifted[id] = newDepth;
       return true;
     }
 
@@ -20002,6 +20009,12 @@ var createLayoutInfo = function createLayoutInfo(cy, layout, options) {
   // Shortcut
   var edges = options.eles.edges();
   var nodes = options.eles.nodes();
+  var bb = makeBoundingBox(options.boundingBox ? options.boundingBox : {
+    x1: 0,
+    y1: 0,
+    w: cy.width(),
+    h: cy.height()
+  });
   var layoutInfo = {
     isCompound: cy.hasCompoundNodes(),
     layoutNodes: [],
@@ -20012,14 +20025,9 @@ var createLayoutInfo = function createLayoutInfo(cy, layout, options) {
     layoutEdges: [],
     edgeSize: edges.size(),
     temperature: options.initialTemp,
-    clientWidth: cy.width(),
-    clientHeight: cy.width(),
-    boundingBox: makeBoundingBox(options.boundingBox ? options.boundingBox : {
-      x1: 0,
-      y1: 0,
-      w: cy.width(),
-      h: cy.height()
-    })
+    clientWidth: bb.w,
+    clientHeight: bb.h,
+    boundingBox: bb
   };
   var components = options.eles.components();
   var id2cmptId = {};
@@ -20205,7 +20213,7 @@ var findLCA = function findLCA(node1, node2, layoutInfo) {
  * @arg layoutInfo : layoutInfo object
  *
  * @return         : object of the form {count: X, graph: Y}, where:
- *                   X is the number of ancesters (max: 2) found in
+ *                   X is the number of ancestors (max: 2) found in
  *                   graphIx (and it's subgraphs),
  *                   Y is the graph index of the lowest graph containing
  *                   all X nodes
@@ -21697,8 +21705,9 @@ BRp$e.findContainerClientCoords = function () {
   }
 
   var container = this.container;
+  var containerWindow = container.ownerDocument.defaultView || window$1;
   var rect = container.getBoundingClientRect();
-  var style = window$1.getComputedStyle(container);
+  var style = containerWindow.getComputedStyle(container);
 
   var styleValue = function styleValue(name) {
     return parseFloat(style.getPropertyValue(name));
@@ -24225,6 +24234,8 @@ BRp$4.getCachedImage = function (url, crossOrigin, onLoad) {
     var isDataUri = url.substring(0, dataUriPrefix.length).toLowerCase() === dataUriPrefix;
 
     if (!isDataUri) {
+      // if crossorigin is 'null'(stringified), then manually set it to null 
+      crossOrigin = crossOrigin === 'null' ? null : crossOrigin;
       image.crossOrigin = crossOrigin; // prevent tainted canvas
     }
 
@@ -24246,7 +24257,9 @@ BRp$3.registerBinding = function (target, event, handler, useCapture) {
 
 BRp$3.binder = function (tgt) {
   var r = this;
-  var tgtIsDom = tgt === window || tgt === document || tgt === document.body || domElement(tgt);
+  var container = r.container;
+  var containerWindow = container.ownerDocument.defaultView || window;
+  var tgtIsDom = tgt === containerWindow || tgt === containerWindow.document || tgt === containerWindow.document.body || domElement(tgt);
 
   if (r.supportsPassiveEvents == null) {
     // from https://github.com/WICG/EventListenerOptions/blob/gh-pages/explainer.md#feature-detection
@@ -24259,7 +24272,7 @@ BRp$3.binder = function (tgt) {
           return true;
         }
       });
-      window.addEventListener('test', null, opts);
+      containerWindow.addEventListener('test', null, opts);
     } catch (err) {// not supported
     }
 
@@ -24304,6 +24317,7 @@ BRp$3.nodeIsGrabbable = function (node) {
 
 BRp$3.load = function () {
   var r = this;
+  var containerWindow = r.container.ownerDocument.defaultView || window;
 
   var isSelected = function isSelected(ele) {
     return ele.selected();
@@ -24537,7 +24551,7 @@ BRp$3.load = function () {
   } // auto resize
 
 
-  r.registerBinding(window, 'resize', onResize); // eslint-disable-line no-undef
+  r.registerBinding(containerWindow, 'resize', onResize); // eslint-disable-line no-undef
 
   if (haveResizeObserverApi) {
     r.resizeObserver = new ResizeObserver(onResize); // eslint-disable-line no-undef
@@ -24767,7 +24781,7 @@ BRp$3.load = function () {
     select[0] = select[2] = pos[0];
     select[1] = select[3] = pos[1];
   }, false);
-  r.registerBinding(window, 'mousemove', function mousemoveHandler(e) {
+  r.registerBinding(containerWindow, 'mousemove', function mousemoveHandler(e) {
     // eslint-disable-line no-undef
     var capture = r.hoverData.capture;
 
@@ -25045,7 +25059,7 @@ BRp$3.load = function () {
     }
   }, false);
   var clickTimeout, didDoubleClick, prevClickTimeStamp;
-  r.registerBinding(window, 'mouseup', function mouseupHandler(e) {
+  r.registerBinding(containerWindow, 'mouseup', function mouseupHandler(e) {
     // eslint-disable-line no-undef
     var capture = r.hoverData.capture;
 
@@ -25325,7 +25339,7 @@ BRp$3.load = function () {
   // r.registerBinding(r.container, 'DOMMouseScroll', wheelHandler, true);
   // r.registerBinding(r.container, 'MozMousePixelScroll', wheelHandler, true); // older firefox
 
-  r.registerBinding(window, 'scroll', function scrollHandler(e) {
+  r.registerBinding(containerWindow, 'scroll', function scrollHandler(e) {
     // eslint-disable-line no-unused-vars
     r.scrollingPage = true;
     clearTimeout(r.scrollingPageTimeout);
@@ -25927,7 +25941,7 @@ BRp$3.load = function () {
 
           r.redraw();
         } else {
-          // otherise keep track of drag delta for later
+          // otherwise keep track of drag delta for later
           var dragDelta = r.touchData.dragDelta = r.touchData.dragDelta || [];
 
           if (dragDelta.length === 0) {
@@ -26034,7 +26048,7 @@ BRp$3.load = function () {
     }
   }, false);
   var touchcancelHandler;
-  r.registerBinding(window, 'touchcancel', touchcancelHandler = function touchcancelHandler(e) {
+  r.registerBinding(containerWindow, 'touchcancel', touchcancelHandler = function touchcancelHandler(e) {
     // eslint-disable-line no-unused-vars
     var start = r.touchData.start;
     r.touchData.capture = false;
@@ -26044,7 +26058,7 @@ BRp$3.load = function () {
     }
   });
   var touchendHandler, didDoubleTouch, touchTimeout, prevTouchTimeStamp;
-  r.registerBinding(window, 'touchend', touchendHandler = function touchendHandler(e) {
+  r.registerBinding(containerWindow, 'touchend', touchendHandler = function touchendHandler(e) {
     // eslint-disable-line no-unused-vars
     var start = r.touchData.start;
     var capture = r.touchData.capture;
@@ -26828,6 +26842,7 @@ BRp$2.registerNodeShapes = function () {
   this.generatePolygon('star', star5Points);
   this.generatePolygon('vee', [-1, -1, 0, -0.333, 1, -1, 0, 1]);
   this.generatePolygon('rhomboid', [-1, -1, 0.333, -1, 1, 1, -0.333, 1]);
+  this.generatePolygon('right-rhomboid', [-0.333, -1, 1, -1, 0.333, 1, -1, 1]);
   this.nodeShapes['concavehexagon'] = this.generatePolygon('concave-hexagon', [-1, -0.95, -0.75, 0, -1, 0.95, 1, 0.95, 0.75, 0, 1, -0.95]);
   {
     var tagPoints = [-1, -1, 0.25, -1, 1, 0, 0.25, 1, -1, 1];
@@ -26970,10 +26985,11 @@ BRp.init = function (options) {
   var r = this;
   r.options = options;
   r.cy = options.cy;
-  var ctr = r.container = options.cy.container(); // prepend a stylesheet in the head such that
+  var ctr = r.container = options.cy.container();
+  var containerWindow = ctr.ownerDocument.defaultView || window$1; // prepend a stylesheet in the head such that
 
-  if (window$1) {
-    var document = window$1.document;
+  if (containerWindow) {
+    var document = containerWindow.document;
     var head = document.head;
     var stylesheetId = '__________cytoscape_stylesheet';
     var className = '__________cytoscape_container';
@@ -26986,11 +27002,11 @@ BRp.init = function (options) {
     if (!stylesheetAlreadyExists) {
       var stylesheet = document.createElement('style');
       stylesheet.id = stylesheetId;
-      stylesheet.innerHTML = '.' + className + ' { position: relative; }';
+      stylesheet.textContent = '.' + className + ' { position: relative; }';
       head.insertBefore(stylesheet, head.children[0]); // first so lowest priority
     }
 
-    var computedStyle = window$1.getComputedStyle(ctr);
+    var computedStyle = containerWindow.getComputedStyle(ctr);
     var position = computedStyle.getPropertyValue('position');
 
     if (position === 'static') {
@@ -28280,7 +28296,7 @@ LTCp.validateLayersElesOrdering = function (lvl, eles) {
     }
 
     if (offset < 0) {
-      // then the layer has nonexistant elements and is invalid
+      // then the layer has nonexistent elements and is invalid
       this.invalidateLayer(layer);
       continue;
     } // the eles in the layer must be in the same continuous order, else the layer is invalid
@@ -31913,7 +31929,7 @@ sheetfn.appendToStyle = function (style) {
   return style;
 };
 
-var version = "3.23.0";
+var version = "snapshot";
 
 var cytoscape = function cytoscape(options) {
   // if no options specified, use default
